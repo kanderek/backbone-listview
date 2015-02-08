@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<title>collection test</title>
+</head>
+
+<body>
+	
+	<div id="control-panel">
+		<button id="sign-out">Sign Out</button>
+		<button id="sign-in">Sign In</button>
+		<button id="new">Add</button>
+	</div>
+
+	<div id="list1">
+	</div>
+
+	<div id="list2">
+	</div>
+
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.7.0/underscore.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.1.2/backbone.js"></script>
+	<script src="Lib/backbone.wreq.js"></script>
+	<script>
+
+	    var vent = new Backbone.Wreqr.EventAggregator();
+		var controlPanel = $('#control-panel');
+
+		controlPanel.on('click', function (event) {
+			var target = event.target;
+
+			switch (target.id) {
+				case 'sign-out':
+					console.log('signing out');
+					collection.reset();
+					vent.trigger('signing-out');
+					break;
+				case 'sign-in':
+					console.log('signing in');
+					vent.trigger('signing-in');
+					collection.fetch();
+					break;
+				case 'new':
+					console.log('adding...');
+					var index = data.length + 1;
+					data.push({
+						id: index,
+						name: 'New Name ' + index,
+						title: 'New Title ' + index 
+					});
+
+					vent.trigger('add');
+					collection.add({
+						id: index,
+						name: 'New Name ' + index,
+						title: 'New Title ' + index 
+					});
+					collection.save();
+					break;
+			}
+		});
+
+		var Collection = Backbone.Collection.extend({
+
+			getParams: function () {
+				return '';
+			},
+
+			url: function () {
+				var queryString = this.getParams();
+
+				return 'http://localhost:3000/collection/' + queryString;
+			},
+
+			comparator: function (item) {
+				 return item.get("name");
+			},
+
+			fetchAndFilter: function () {
+				var D = $.Deferred();
+				var _this = this;
+
+				this.fetch()
+					.then(function (items) {
+						var filtered = _.filter(items, function (item) {
+							return item.remove;
+						});
+						_this.set(filtered);
+						D.resolve(filtered);
+					});
+
+				return D.promise();
+			}
+
+		});
+
+		var ItemView = Backbone.View.extend({
+			tagName: 'li',
+
+			template: '<div><h2 class="name"></h2><p class="title"></p></div>',
+
+			initialize: function (options) {
+				this.model = options.model;
+				this.parentView = options.parentView;
+
+				this.buildView();
+				this.render();
+
+				this.listenTo(this.model, 'change', function () {
+					this.render();
+				});
+			},
+
+			remove: function () {
+				console.log('item removed...');
+				console.log(this);
+				this.$el.remove();
+			},
+
+			buildView: function () {
+				this.$el.html(this.template);
+				this.parentView.$el.append(this.$el);
+			},
+
+			render: function () {
+				this.$el.find('.name').html(this.model.get('name'));
+				this.$el.find('.title').html(this.model.get('title'));
+			}
+		});
+
+		var ListView = Backbone.View.extend({
+			tagName: 'ul',
+
+			initialize: function (options) {
+				this.collection = new Collection();//options.collection;//new Collection();
+				this.items = [];
+				this.parentEl = options.el;
+				this.type = options.type || 'standard';
+
+				this.buildView();
+				this.render();
+			
+				this.listenTo(this.collection, 'add', function (model) {
+					console.log('model added to collection');
+					this.addItem(model);
+				});
+
+				this.listenTo(this.collection, 'remove', function (model, collection, options) {
+					console.log('model removed from collection');
+					this.removeItem(options.index);
+				});
+
+				this.listenTo(this.collection, 'reset', function () {
+					console.log('reset event received in listView');
+				});
+
+				this.listenTo(this.collection, 'sort', function () {
+					console.log('sort event on collection');
+					this.updateItemModels();
+				});
+
+				this.listenTo(vent, 'signing-in', function () {
+					// this.collection.add(this.collection.fetch());
+					this.refreshData();
+				});
+
+				this.listenTo(vent, 'signing-out', function () {
+					this.clear();
+				});
+
+				this.listenTo(vent, 'add', function () {
+					// this.collection.add(this.collection.fetch());
+				});
+			},
+
+			addItem: function (model) {
+				var lastIndex = this.items.length;
+
+				this.items.push(new ItemView({
+					model: model,
+					parentView: this
+				}));
+				this.items[lastIndex].render();
+			},
+
+			removeItem: function (index) {
+				var removedItem = this.items.splice(index, 1)[0];
+				removedItem.remove();
+			},
+
+			refreshData: function () {
+				var _this = this;
+
+				this.collection.fetchAndFilter()//fetch()
+					.then(function (items) {
+						console.log('items fetched');
+					});
+			},
+
+			updateItemModels: function () {
+				var _this = this;
+
+				this.items.forEach(function (item, index) {
+					item.model = _this.collection.at(index);
+					item.render();
+				});
+			},
+
+			clear: function () {
+				this.collection.reset();
+				this.items = [];
+				this.$el.html('');
+			},
+
+			buildView: function () {
+				this.refreshData();
+
+				$(this.parentEl).append(this.$el); 
+			},
+
+			render: function () {
+				this.items.forEach(function (item) {
+					item.render();
+				});
+			}
+		});
+
+		var data = [
+			{
+				id: 1,
+				name: 'sally',
+				title: 'girly girl'
+			},
+			{
+				id: 2,
+				name: 'billy',
+				title: 'man boy'
+			}
+		];
+
+		var collection = new Collection(data);
+		var collection2 = new Collection();
+		var listView = new ListView({el: $('#list1'), collection: collection});
+
+	</script>
+</body>
+
+</html>
